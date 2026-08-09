@@ -1,0 +1,13 @@
+First occurrence t = 0.8 with q = 0.564375
+Done: sequential baseline
+First occurrence t = 0.8 with q = 0.564375
+Done: 4 ranks x 8 threads
+First occurrence t = 0.8 with q = 0.564375
+Done: 8 ranks x 4 threads
+First occurrence t = 0.8 with q = 0.564375
+Done: 16 ranks x 2 threads
+First occurrence t = 0.8 with q = 0.564375
+Done: 32 ranks x 1 thread
+First occurrence t = 0.8 with q = 0.564375
+Done: 1 rank x 8 threads
+All runs complete. Compare time_*.log for computation times.
