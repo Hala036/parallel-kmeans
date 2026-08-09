@@ -20,24 +20,35 @@ same 8 cores.
 
 ## Data flow per timestep
 
+Centers are seeded **once**, before the `t`-loop starts, from the
+first K points at t=0 (`init_centers_from_seed(..., t=0)` in the MPI
+driver, `init_centers` in the sequential one) -- per the spec's
+"Use first K points at t=0 as initial positions of the centers."
+`cluster_id` starts at -1 for every point (set by `read_input`).
+Neither centers nor `cluster_id` are reset between timesteps: each
+`t` continues K-means from wherever the *previous* `t` converged to,
+rather than restarting from the seed every time. This matches the
+spec's "keep its center for the next iteration" (for empty clusters),
+which only makes sense if center state persists as its own concept
+across iterations rather than being rebuilt from the seed each `t`.
+
 For each `t = 0, dT, 2dT, ..., T`:
 
 1. `update_positions` (OpenMP): each rank moves its local points to
-   their position at `t`.
-2. `init_centers_from_seed`: every rank independently recomputes the
-   K seed centers' positions at `t` from a small replicated copy of
-   the seed points' `(x0,y0,vx,vy)` (captured once from rank 0's first
-   K input points, broadcast at startup). No per-timestep
-   communication needed for this step since K < 20.
-3. Inner K-Means loop (MPI, per iteration):
+   their position at `t`. Centers are *not* moved here -- they have no
+   velocity of their own; `run_kmeans` recomputes them from wherever
+   the (moved) points end up, starting from their previous value.
+2. Inner K-Means loop (MPI, per iteration):
    - `assign_clusters` (OpenMP): each rank assigns its local points to
-     the nearest center.
+     the nearest center (starting from each point's assignment as of
+     the previous `t`, not from scratch).
    - `MPI_Allreduce(SUM)` on the changed-count decides convergence.
    - `compute_partial_sums` (OpenMP) + `MPI_Allreduce(SUM)` on
      per-cluster sums/counts + `centers_from_sums`: recomputes global
-     centers from all ranks' local contributions.
-4. Diameter / quality (Step 6): see Load Balancing below.
-5. If `q < QM`, every rank independently reaches the same answer (no
+     centers from all ranks' local contributions. A cluster with no
+     members keeps its previous center (`centers_from_sums`).
+3. Diameter / quality (Step 6): see Load Balancing below.
+4. If `q < QM`, every rank independently reaches the same answer (no
    broadcast needed) and the outer loop stops.
 
 ## Load Balancing
@@ -106,6 +117,6 @@ diameter term for large N.
 Sequential (`main.c`) and MPI (`main_mpi.c`) share `kmeans.c`/`io.c`
 and were verified to produce identical output across rank counts
 1/2/3/4/5/7, including test cases with cluster members deliberately
-interleaved across ranks and with intentionally unequal cluster sizes
-(25/3/2 points), confirming the distributed diameter computation does
-not miss cross-rank pairs.
+interleaved across ranks, intentionally unequal cluster sizes
+(25/3/2 points), and after switching centers/cluster_id to carry
+forward across timesteps instead of resetting at each `t`.
