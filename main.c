@@ -17,9 +17,7 @@ int main(int argc, char **argv) {
 
     Cluster *centers = malloc((size_t)params.K * sizeof(Cluster));
 
-    /* Timed region excludes file I/O -- this is what should be
-     * compared against the MPI version's MPI_Wtime-measured region
-     * (see main_mpi.c) to demonstrate parallel speedup. */
+    // timed region excludes file I/O, to match what main_mpi.c measures
     struct timespec t_start, t_end;
     clock_gettime(CLOCK_MONOTONIC, &t_start);
 
@@ -33,10 +31,7 @@ int main(int argc, char **argv) {
 
         update_positions(points, params.N, t);
 
-        /* Centers are re-initialized to the first K points' *current*
-         * position at every t, per the spec ("use first K points at
-         * t=0 as initial positions of the centers"), then re-run
-         * K-Means fresh at this snapshot. */
+        // re-seed centers from the first K points and re-run K-Means fresh at every t
         init_centers(points, params.K, centers);
         for (int i = 0; i < params.N; i++) {
             points[i].cluster_id = -1;

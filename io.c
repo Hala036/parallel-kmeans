@@ -9,7 +9,7 @@ int read_input(const char *filename, Params *params, Point **points) {
         return -1;
     }
 
-    /* First line: N K T dT LIMIT QM */
+    // first line: N K T dT LIMIT QM
     if (fscanf(fp, "%d %d %lf %lf %d %lf",
                &params->N, &params->K, &params->T,
                &params->dT, &params->LIMIT, &params->QM) != 6) {
@@ -44,9 +44,9 @@ int read_input(const char *filename, Params *params, Point **points) {
         pts[i].y0 = y;
         pts[i].vx = vx;
         pts[i].vy = vy;
-        pts[i].x = x;   /* position at t = 0 is just the initial position */
+        pts[i].x = x;
         pts[i].y = y;
-        pts[i].cluster_id = -1;  /* not assigned yet */
+        pts[i].cluster_id = -1;
     }
 
     fclose(fp);

@@ -3,9 +3,7 @@
 #include <stdlib.h>
 #include "kmeans.h"
 
-/* Splits N items across `size` ranks as evenly as possible (the first
- * N % size ranks get one extra item), filling counts[]/displs[] for
- * use with MPI_Scatterv / MPI_Gatherv. */
+// splits N items across ranks as evenly as possible; first N % size ranks get one extra
 static void compute_counts_displs(int N, int size, int *counts, int *displs) {
     int base = N / size;
     int rem = N % size;
@@ -36,7 +34,7 @@ int main(int argc, char **argv) {
     double *all_x0 = NULL, *all_y0 = NULL, *all_vx = NULL, *all_vy = NULL;
     double *seed_x0 = malloc(0), *seed_y0 = malloc(0), *seed_vx = malloc(0), *seed_vy = malloc(0);
 
-    /* --- Rank 0 reads the whole file; nobody else has touched disk. --- */
+    // only rank 0 touches disk
     if (rank == 0) {
         Point *points;
         if (read_input(argv[1], &params, &points) != 0) {
@@ -57,11 +55,7 @@ int main(int argc, char **argv) {
             all_vx[i] = points[i].vx;
             all_vy[i] = points[i].vy;
         }
-        /* Seed points = first K points (spec: "use first K points at
-         * t=0 as initial positions of the centers"). Grab their
-         * (x0,y0,vx,vy) now, while points[] still exists, so every
-         * rank can later recompute centers at any t with zero
-         * per-timestep communication (see init_centers_from_seed). */
+        // seed points = first K points; grabbed now so every rank can recompute centers at any t with no per-timestep communication
         for (int k = 0; k < params.K; k++) {
             seed_x0[k] = points[k].x0;
             seed_y0[k] = points[k].y0;
@@ -71,7 +65,6 @@ int main(int argc, char **argv) {
         free(points);
     }
 
-    /* --- Broadcast the scalar params to everyone. --- */
     MPI_Bcast(&params.N, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&params.K, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&params.T, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -81,11 +74,7 @@ int main(int argc, char **argv) {
 
     int N = params.N, K = params.K;
 
-    /* Non-root ranks don't have real seed values yet -- (re)allocate
-     * to the correct size K now that K is known everywhere, so the
-     * MPI_Bcast below has valid, correctly-sized buffers on every
-     * rank. Rank 0's buffers already hold the real data and are the
-     * same size, so this is a cheap no-op there. */
+    // non-root ranks need correctly-sized (K) seed buffers before the broadcast below
     if (rank != 0) {
         free(seed_x0); free(seed_y0); free(seed_vx); free(seed_vy);
         seed_x0 = malloc((size_t)K * sizeof(double));
@@ -94,7 +83,6 @@ int main(int argc, char **argv) {
         seed_vy = malloc((size_t)K * sizeof(double));
     }
 
-    /* --- Figure out this rank's slice of the N points. --- */
     int *counts = malloc((size_t)size * sizeof(int));
     int *displs = malloc((size_t)size * sizeof(int));
     compute_counts_displs(N, size, counts, displs);
@@ -120,10 +108,7 @@ int main(int argc, char **argv) {
     free(lx0); free(ly0); free(lvx); free(lvy);
     if (rank == 0) { free(all_x0); free(all_y0); free(all_vx); free(all_vy); }
 
-    /* --- Every rank keeps a tiny replicated copy of the K seed
-     * points' (x0,y0,vx,vy), so centers can be computed locally at
-     * every t with zero communication (K < 20, cheap to replicate).
-     * Rank 0 filled seed_x0/y0/vx/vy above; broadcast to everyone. --- */
+    // every rank keeps a replicated copy of the K seed points, cheap since K < 20
     MPI_Bcast(seed_x0, K, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(seed_y0, K, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(seed_vx, K, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -137,23 +122,13 @@ int main(int argc, char **argv) {
     double *gsum_y = malloc((size_t)K * sizeof(double));
     int *gcount = malloc((size_t)K * sizeof(int));
 
-    /* Full arrays, rebuilt every timestep (after convergence) on every
-     * rank via MPI_Allgatherv so the diameter step -- which needs
-     * cross-rank point pairs to be exact -- can be split across all
-     * ranks by point index instead of running on rank 0 alone. */
+    // rebuilt every timestep via MPI_Allgatherv so the diameter step can be split across all ranks, not just rank 0
     double *full_x = malloc((size_t)N * sizeof(double));
     double *full_y = malloc((size_t)N * sizeof(double));
     int *full_cid = malloc((size_t)N * sizeof(int));
     Point *full_points = malloc((size_t)N * sizeof(Point));
 
-    /* Diameter work is split by point index (this rank's slice of the
-     * outer i-loop over all N points), not by cluster -- reusing the
-     * same counts/displs as the point scatter. Splitting by cluster
-     * instead would badly imbalance ranks whenever cluster sizes are
-     * very unequal (one rank could land the one giant cluster, since
-     * K < 20 gives few, coarse buckets to divide among ranks); N is
-     * usually >> size, so an i-range split stays even regardless of
-     * how points fall into clusters. */
+    // diameter work is split by point index, not by cluster, so it stays balanced when cluster sizes are uneven
     int i_lo = displs[rank];
     int i_hi = i_lo + counts[rank];
 
@@ -168,10 +143,7 @@ int main(int argc, char **argv) {
     double found_t = 0.0, found_q = 0.0;
     int n_steps = (int)(params.T / params.dT) + 1;
 
-    /* Timed region excludes file I/O and the scatter of input data,
-     * matching what main.c measures (see its comment) -- starts once
-     * every rank is ready to begin the per-timestep computation.
-     * MPI_Barrier ensures all ranks start the clock together. */
+    // timed region matches main.c's; barrier makes sure all ranks start the clock together
     MPI_Barrier(MPI_COMM_WORLD);
     double t_start = MPI_Wtime();
 
@@ -182,7 +154,7 @@ int main(int argc, char **argv) {
         init_centers_from_seed(centers, K, seed_x0, seed_y0, seed_vx, seed_vy, t);
         for (int i = 0; i < local_N; i++) local_points[i].cluster_id = -1;
 
-        /* --- Inner K-Means loop (steps 2-5), synchronized across ranks --- */
+        // inner K-Means loop, synchronized across ranks each iteration
         for (int iter = 0; iter < params.LIMIT; iter++) {
             int changed_local = assign_clusters(local_points, local_N, centers, K);
             int changed_global = 0;
@@ -196,11 +168,7 @@ int main(int argc, char **argv) {
             centers_from_sums(centers, K, gsum_x, gsum_y, gcount);
         }
 
-        /* --- Step 6: every rank needs the full, up-to-date (this
-         * timestep, post-convergence) point set to compute exact
-         * diameters -- a cluster's two farthest points can live on
-         * different ranks. MPI_Allgatherv gives every rank the same
-         * complete, current snapshot (not stale from a prior t). --- */
+        // every rank needs the full point set here since a cluster's two farthest points can land on different ranks
         for (int i = 0; i < local_N; i++) {
             local_x[i] = local_points[i].x;
             local_y[i] = local_points[i].y;
@@ -215,13 +183,7 @@ int main(int argc, char **argv) {
             full_points[i].cluster_id = full_cid[i];
         }
 
-        /* Each rank computes partial diameters using only its slice
-         * [i_lo,i_hi) of point indices as the outer loop (still
-         * compared against all N points) -- spreads the O(N^2/K)
-         * diameter cost evenly across nodes by point count, regardless
-         * of how unevenly points fall into the K clusters.
-         * MPI_MAX-combining is exact: untouched contributions are 0.0,
-         * which never wins against a real (non-negative) diameter. */
+        // each rank scans only its slice [i_lo,i_hi) of points; MPI_MAX-combining is exact since untouched slots stay 0.0
         cluster_diameters_i_range(full_points, N, K, i_lo, i_hi, partial_diam);
         MPI_Allreduce(partial_diam, diam, K, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
 
@@ -235,9 +197,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* All ranks reach here at roughly the same time (the loop's MPI
-     * collectives keep them in lockstep each iteration), so measuring
-     * on rank 0 alone is representative -- no barrier needed here. */
+    // no barrier needed here: the loop's collectives already keep ranks in lockstep
     double t_end = MPI_Wtime();
     if (rank == 0) {
         fprintf(stderr, "Parallel computation time: %.6f s (%d ranks x %s threads)\n",

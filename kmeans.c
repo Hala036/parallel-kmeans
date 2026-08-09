@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include "kmeans.h"
 
-/* Euclidean distance -- used everywhere below, so factor it out once. */
 static double dist(double x1, double y1, double x2, double y2) {
     double dx = x1 - x2;
     double dy = y1 - y2;
@@ -37,10 +36,7 @@ void init_centers_from_seed(Cluster *centers, int K,
 int assign_clusters(Point *points, int N, const Cluster *centers, int K) {
     int changed = 0;
 
-    /* Each point's assignment is fully independent of every other
-     * point's -- only reads centers[], only writes its own cluster_id.
-     * Safe to parallelize directly; reduction(+:changed) gives every
-     * thread its own private counter, summed at the end. */
+    // each point only reads centers[] and writes its own cluster_id, so this is safe to parallelize directly
     #pragma omp parallel for reduction(+:changed)
     for (int i = 0; i < N; i++) {
         int best_k = 0;
@@ -73,9 +69,7 @@ void compute_partial_sums(const Point *points, int N, int K,
         count[k] = 0;
     }
 
-    /* Array-section reduction (OpenMP 4.5+): each thread gets a
-     * private copy of sum_x/sum_y/count, combined with + at the end.
-     * K is small (<20) so the per-thread private arrays are cheap. */
+    // array-section reduction: each thread gets private sum_x/sum_y/count, combined at the end
     #pragma omp parallel for reduction(+:sum_x[:K], sum_y[:K], count[:K])
     for (int i = 0; i < N; i++) {
         int k = points[i].cluster_id;
@@ -92,7 +86,7 @@ void centers_from_sums(Cluster *centers, int K,
             centers[k].cx = sum_x[k] / count[k];
             centers[k].cy = sum_y[k] / count[k];
         }
-        /* else: empty cluster -- leave centers[k] as it was. */
+        // else: empty cluster, leave centers[k] as it was
     }
 }
 
@@ -101,8 +95,7 @@ void update_centers(const Point *points, int N, Cluster *centers, int K) {
     double *sum_y = malloc((size_t)K * sizeof(double));
     int *count = malloc((size_t)K * sizeof(int));
 
-    /* Sequential case is just the parallel case with a single "rank"
-     * that owns all N points -- no MPI_Allreduce needed in between. */
+    // sequential case: same as the parallel path, just with one "rank" owning all N points
     compute_partial_sums(points, N, K, sum_x, sum_y, count);
     centers_from_sums(centers, K, sum_x, sum_y, count);
 
@@ -117,10 +110,7 @@ int run_kmeans(Point *points, int N, Cluster *centers, int K, int LIMIT) {
     for (iter = 0; iter < LIMIT; iter++) {
         int changed = assign_clusters(points, N, centers, K);
         if (changed == 0) {
-            /* Converged: assignment didn't move, so centers computed
-             * from the previous iteration are already consistent with
-             * it. No need to recompute centers again. */
-            break;
+            break;  // converged, centers are already consistent with this assignment
         }
         update_centers(points, N, centers, K);
     }
@@ -131,10 +121,7 @@ int run_kmeans(Point *points, int N, Cluster *centers, int K, int LIMIT) {
 double cluster_diameter(const Point *points, int N, int cluster_id) {
     double max_d = 0.0;
 
-    /* Triangular workload (inner loop shrinks as i grows), so a
-     * static split of the outer loop leaves some threads with much
-     * more work than others -- schedule(dynamic) lets threads that
-     * finish early pick up more chunks instead of idling. */
+    // workload is triangular (shrinks as i grows), so schedule(dynamic) avoids leaving threads idle
     #pragma omp parallel for schedule(dynamic) reduction(max:max_d)
     for (int i = 0; i < N; i++) {
         if (points[i].cluster_id != cluster_id) continue;
@@ -148,15 +135,7 @@ double cluster_diameter(const Point *points, int N, int cluster_id) {
     return max_d;
 }
 
-/* Computes partial per-cluster diameters using only outer-loop indices
- * i in [i_lo, i_hi), still comparing against all N points (points is
- * the full, up-to-date snapshot). Lets a caller (the MPI driver) split
- * the O(N^2/K) diameter workload across ranks by point index rather
- * than by cluster -- balances even when cluster sizes are very
- * unequal, since the split is over all N points, not over K buckets
- * that might hold wildly different numbers of them. Combine partial
- * results across ranks with MPI_MAX (unset diam_out[k] stays 0.0,
- * which never wins against a real diameter). */
+// splits the diameter scan across ranks by point index rather than by cluster, so it stays balanced when cluster sizes are uneven; combine results with MPI_MAX
 void cluster_diameters_i_range(const Point *points, int N, int K,
                                 int i_lo, int i_hi, double *diam_out) {
     for (int k = 0; k < K; k++) diam_out[k] = 0.0;
@@ -195,9 +174,7 @@ double quality_measure_from_diam(const double *diam, const Cluster *centers, int
             if (i == j) continue;
             double D_ij = dist(centers[i].cx, centers[i].cy,
                                 centers[j].cx, centers[j].cy);
-            /* D_ij should never be 0 here (distinct cluster centers),
-             * but guard anyway so a degenerate case can't crash us. */
-            if (D_ij > 0.0) {
+            if (D_ij > 0.0) {  // guards against a degenerate 0 distance between centers
                 sum += diam[i] / D_ij;
             }
             pairs++;
