@@ -21,7 +21,7 @@ gcc -Wall -Wextra -O2 -std=c17 -fopenmp -o kmeans_seq main.c kmeans.c io.c -lm
 mpicc -Wall -Wextra -O2 -std=c17 -fopenmp -o kmeans_mpi main_mpi.c kmeans.c io.c -lm
 
 # sequential baseline, what the parallel configs below must beat
-./kmeans_seq input_large.txt output_seq.txt 2> time_sequential.log
+./kmeans_seq input.txt output_seq.txt 2> time_sequential.log
 echo "Done: sequential baseline"
 
 # scaling sweep: same 32-core allocation, split differently between ranks and threads each time
@@ -29,31 +29,31 @@ echo "Done: sequential baseline"
 
 # 1 rank/node (4 ranks total), 8 threads/rank
 export OMP_NUM_THREADS=8
-mpirun -np 4 --map-by ppr:1:node ./kmeans_mpi input_large.txt output_4x8.txt \
+mpirun -np 4 --map-by ppr:1:node ./kmeans_mpi input.txt output_4x8.txt \
   2> time_4ranks_8threads.log
 echo "Done: 4 ranks x 8 threads"
 
 # 2 ranks/node (8 ranks total), 4 threads/rank
 export OMP_NUM_THREADS=4
-mpirun -np 8 --map-by ppr:2:node ./kmeans_mpi input_large.txt output_8x4.txt \
+mpirun -np 8 --map-by ppr:2:node ./kmeans_mpi input.txt output_8x4.txt \
   2> time_8ranks_4threads.log
 echo "Done: 8 ranks x 4 threads"
 
 # 4 ranks/node (16 ranks total), 2 threads/rank
 export OMP_NUM_THREADS=2
-mpirun -np 16 --map-by ppr:4:node ./kmeans_mpi input_large.txt output_16x2.txt \
+mpirun -np 16 --map-by ppr:4:node ./kmeans_mpi input.txt output_16x2.txt \
   2> time_16ranks_2threads.log
 echo "Done: 16 ranks x 2 threads"
 
 # 8 ranks/node (32 ranks total), pure MPI, 1 thread/rank
 export OMP_NUM_THREADS=1
-mpirun -np 32 --map-by ppr:8:node ./kmeans_mpi input_large.txt output_32x1.txt \
+mpirun -np 32 --map-by ppr:8:node ./kmeans_mpi input.txt output_32x1.txt \
   2> time_32ranks_1thread.log
 echo "Done: 32 ranks x 1 thread"
 
 # 1 rank total, 8 threads: pure OpenMP, no MPI parallelism
 export OMP_NUM_THREADS=8
-mpirun -np 1 --map-by ppr:1:node ./kmeans_mpi input_large.txt output_1x8.txt \
+mpirun -np 1 --map-by ppr:1:node ./kmeans_mpi input.txt output_1x8.txt \
   2> time_1rank_8threads.log
 echo "Done: 1 rank x 8 threads"
 
