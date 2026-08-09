@@ -116,12 +116,6 @@ int main(int argc, char **argv) {
         local_points[i].y0 = ly0[i];
         local_points[i].vx = lvx[i];
         local_points[i].vy = lvy[i];
-        /* Not yet assigned -- cluster_id is carried forward across
-         * timesteps now (see the t=0 seeding comment below), so this
-         * initial value matters: it must not equal any real cluster
-         * index, so t=0's first assign_clusters call correctly counts
-         * every point as "changed". */
-        local_points[i].cluster_id = -1;
     }
     free(lx0); free(ly0); free(lvx); free(lvy);
     if (rank == 0) { free(all_x0); free(all_y0); free(all_vx); free(all_vy); }
@@ -170,19 +164,6 @@ int main(int argc, char **argv) {
     double *local_y = malloc((size_t)local_N * sizeof(double));
     int *local_cid = malloc((size_t)local_N * sizeof(int));
 
-    /* Spec: "Use first K points at t=0 as initial positions of the
-     * centers" -- seeded once, here (via init_centers_from_seed at
-     * t=0), not re-derived at every t. Every subsequent t starts
-     * K-means from the *previous* t's converged centers, carried
-     * forward across timesteps -- consistent with "keep its center
-     * for the next iteration" treating center state as persistent,
-     * not discarded and rebuilt from the seed each time. cluster_id
-     * is likewise never reset between timesteps: each rank's points
-     * already have real (-1 initially, then real cluster ids after
-     * t=0) assignments from read_input, giving assign_clusters a
-     * meaningful "did this change" baseline from the first call. */
-    init_centers_from_seed(centers, K, seed_x0, seed_y0, seed_vx, seed_vy, 0.0);
-
     int found = 0;
     double found_t = 0.0, found_q = 0.0;
     int n_steps = (int)(params.T / params.dT) + 1;
@@ -198,6 +179,8 @@ int main(int argc, char **argv) {
         double t = step * params.dT;
 
         update_positions(local_points, local_N, t);
+        init_centers_from_seed(centers, K, seed_x0, seed_y0, seed_vx, seed_vy, t);
+        for (int i = 0; i < local_N; i++) local_points[i].cluster_id = -1;
 
         /* --- Inner K-Means loop (steps 2-5), synchronized across ranks --- */
         for (int iter = 0; iter < params.LIMIT; iter++) {

@@ -17,19 +17,6 @@ int main(int argc, char **argv) {
 
     Cluster *centers = malloc((size_t)params.K * sizeof(Cluster));
 
-    /* Spec: "Use first K points at t=0 as initial positions of the
-     * centers" -- seeded once, here, not re-derived at every t. Every
-     * subsequent t starts K-means from the *previous* t's converged
-     * centers (points move via update_positions, but centers have no
-     * velocity of their own -- they're recomputed by run_kmeans from
-     * wherever the points ended up). This also means cluster_id is
-     * never reset to -1 between timesteps: a point's previous
-     * assignment is exactly the natural starting guess for the next
-     * t, consistent with "keep its center for the next iteration"
-     * treating center/assignment state as carried forward, not
-     * discarded, across iterations. */
-    init_centers(points, params.K, centers);
-
     /* Timed region excludes file I/O -- this is what should be
      * compared against the MPI version's MPI_Wtime-measured region
      * (see main_mpi.c) to demonstrate parallel speedup. */
@@ -45,6 +32,15 @@ int main(int argc, char **argv) {
         double t = step * params.dT;
 
         update_positions(points, params.N, t);
+
+        /* Centers are re-initialized to the first K points' *current*
+         * position at every t, per the spec ("use first K points at
+         * t=0 as initial positions of the centers"), then re-run
+         * K-Means fresh at this snapshot. */
+        init_centers(points, params.K, centers);
+        for (int i = 0; i < params.N; i++) {
+            points[i].cluster_id = -1;
+        }
 
         run_kmeans(points, params.N, centers, params.K, params.LIMIT);
 
