@@ -2,3 +2,10 @@ kmeans_mpi
 kmeans_seq
 *.o
 .DS_Store
+*.pdf
+/slurm examples
+kmeans-*.out
+kmeans-*.err
+time_*.log
+output_*.txt
+output_seq.txt
